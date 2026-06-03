@@ -6,6 +6,7 @@ import type {
 	ContextType,
 	UpdateName,
 } from "@gramio/contexts";
+import type { FileSource } from "@gramio/files";
 import type {
 	APIMethodParams,
 	APIMethodReturn,
@@ -56,6 +57,30 @@ export interface BotOptions {
 		 * @default 1000
 		 */
 		retryGetUpdatesWait?: number;
+	};
+	/**
+	 * File download/serving options — mainly for a **local Bot API server**.
+	 *
+	 * @example
+	 * ```ts
+	 * const bot = new Bot(token, {
+	 *     api: { baseURL: "http://telegram-bot-api:8081/bot" },
+	 *     files: {
+	 *         // bot.getFileLink() and ctx.download() resolve to this (token-less) URL
+	 *         baseURL: "http://telegram-bot-api:8080",
+	 *     },
+	 * });
+	 * ```
+	 */
+	files?: {
+		/** How to fetch file bytes. @default "auto" */
+		source?: FileSource;
+		/** Working directory of the local Bot API server — the prefix of the absolute `file_path` it returns. @default "/var/lib/telegram-bot-api" */
+		localDir?: string;
+		/** Where that working dir is mounted on the bot's side (for `source: "disk"` when bot & server share a volume at a different path). Defaults to `localDir`. */
+		mountDir?: string;
+		/** Public base URL where the working dir is served (e.g. the bundled file server / nginx). Enables token-less {@link Bot.getFileLink} and `source: "rewrite"`. */
+		baseURL?: string;
 	};
 }
 

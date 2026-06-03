@@ -1,5 +1,3 @@
-import fs from "node:fs/promises";
-import { Readable } from "node:stream";
 import type { CallbackData } from "@gramio/callback-data";
 import type {
 	DeriveFromOptions,
@@ -13,13 +11,15 @@ import {
 	type BotLike,
 	type Context,
 	type ContextType,
-	PhotoAttachment,
 	type UpdateName,
 } from "@gramio/contexts";
 import {
 	convertJsonToFormData,
+	type DownloadFileInput,
+	downloadFile as downloadTelegramFile,
 	extractFilesToFormData,
 	isMediaUpload,
+	type TelegramFileDownload,
 } from "@gramio/files";
 import { FormattableMap } from "@gramio/format";
 import type {
@@ -375,52 +375,43 @@ export class Bot<
 	 * ```
 	 * [Documentation](https://gramio.dev/files/download.html)
 	 */
-	async downloadFile(
+	downloadFile(
 		attachment: Attachment | { file_id: string } | string,
-	): Promise<ArrayBuffer>;
-	async downloadFile(
+	): TelegramFileDownload;
+	downloadFile(
 		attachment: Attachment | { file_id: string } | string,
 		path: string,
 	): Promise<string>;
 
-	async downloadFile(
+	downloadFile(
 		attachment: Attachment | { file_id: string } | string,
 		path?: string,
-	): Promise<ArrayBuffer | string> {
-		function getFileId(attachment: Attachment | { file_id: string }) {
-			if (attachment instanceof PhotoAttachment) {
-				return attachment.bigSize.fileId;
-			}
-			if ("fileId" in attachment && typeof attachment.fileId === "string")
-				return attachment.fileId;
-			if ("file_id" in attachment) return attachment.file_id;
+	): TelegramFileDownload | Promise<string> {
+		// thin wrapper over the framework-agnostic `downloadFile` helper
+		const input = attachment as DownloadFileInput;
+		return path
+			? downloadTelegramFile(this, input, path)
+			: downloadTelegramFile(this, input);
+	}
 
-			throw new Error("Invalid attachment");
-		}
-
-		const fileId =
-			typeof attachment === "string" ? attachment : getFileId(attachment);
-
-		const file = await this.api.getFile({ file_id: fileId });
-
-		const url = `${this.options.api.baseURL.replace("/bot", "/file/bot")}${
-			this.options.token
-		}/${file.file_path}`;
-
-		const res = await fetch(url);
-
-		if (path) {
-			if (!res.body)
-				throw new Error("Response without body (should be never throw)");
-
-			await fs.writeFile(path, Readable.fromWeb(res.body as any));
-
-			return path;
-		}
-
-		const buffer = await res.arrayBuffer();
-
-		return buffer;
+	/**
+	 * Get a shareable download link for a file.
+	 *
+	 * When {@link BotOptions.files | `files.baseURL`} is set (e.g. a local Bot API
+	 * server with the bundled file server), the link is **token-less and path-based**
+	 * — safe to hand to users. Otherwise it falls back to the classic
+	 * `…/file/bot<token>/<path>` URL (which contains the bot token).
+	 *
+	 * @example
+	 * ```ts
+	 * const link = await bot.getFileLink(ctx.document.fileId);
+	 * await ctx.reply(`Download: ${link}`);
+	 * ```
+	 */
+	getFileLink(
+		attachment: Attachment | { file_id: string } | string,
+	): Promise<string> {
+		return downloadTelegramFile(this, attachment as DownloadFileInput).link();
 	}
 
 	/**
