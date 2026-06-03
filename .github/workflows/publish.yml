@@ -43,11 +43,15 @@ jobs:
             - name: Run tests
               run: bun test
 
-            - name: Prepare to JSR publish
-              run: bun jsr
-
+            # Type-check the real source against clean node_modules. Must run
+            # BEFORE `bun jsr` — the slow-types compiler rewrites dependency
+            # .d.ts files (e.g. dropping `@gramio/composer` type re-exports),
+            # which would make a post-jsr tsc fail on otherwise-valid code.
             - name: Type-check
               run: bunx tsc --noEmit
+
+            - name: Prepare to JSR publish
+              run: bun jsr
 
             - name: Setup Deno
               uses: denoland/setup-deno@v1
