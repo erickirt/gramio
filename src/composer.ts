@@ -1,4 +1,4 @@
-import type { CallbackData } from "@gramio/callback-data";
+import { type CallbackData, extract } from "@gramio/callback-data";
 import {
 	buildFromOptions,
 	compose,
@@ -316,27 +316,74 @@ const methods = defineComposerMethods({
 		});
 	},
 
-	hears<TThis extends GramIOLike<TThis>>(
-		this: TThis,
-		trigger:
+	hears<
+		TThis extends GramIOLike<TThis>,
+		Trigger extends
+			| CallbackData
 			| RegExp
 			| MaybeArray<string>
 			| ((context: Ctx<"message">) => boolean),
+	>(
+		this: TThis,
+		trigger: Trigger,
 		handler: (
 			context: Ctx<"message"> & {
 				args: RegExpMatchArray | null;
+				/**
+				 * Payload decoded from a reply-keyboard button's hidden suffix when
+				 * `trigger` is a {@link CallbackData} (otherwise `undefined`). A reply
+				 * tap arrives as a text message; the matching label hides the packed
+				 * payload in invisible characters, recovered here type-safely.
+				 */
+				replyData: Trigger extends CallbackData
+					? ReturnType<Trigger["unpack"]>
+					: undefined;
 			} & EventContextOf<TThis, "message">,
 		) => unknown,
 		macroOptions?: Record<string, unknown>,
 	): TThis {
-		type Inner = Ctx<"message"> & { args: RegExpMatchArray | null } & EventContextOf<TThis, "message">;
+		type ReplyData = Trigger extends CallbackData
+			? ReturnType<Trigger["unpack"]>
+			: undefined;
+		type Inner = Ctx<"message"> & {
+			args: RegExpMatchArray | null;
+			replyData: ReplyData;
+		} & EventContextOf<TThis, "message">;
 		const macroHandler = macroOptions
 			? buildFromOptions(this["~"].macros, macroOptions, handler as (ctx: any) => unknown)
 			: null;
 
+		// A reply-keyboard tap is a text message whose visible label may carry a
+		// hidden payload suffix. String/array/RegExp triggers match the VISIBLE
+		// label (so they work even if a client stripped the hidden run); a
+		// CallbackData trigger matches that hidden, typed payload.
+		if (
+			typeof trigger === "object" &&
+			trigger !== null &&
+			!Array.isArray(trigger) &&
+			!(trigger instanceof RegExp) &&
+			typeof (trigger as CallbackData).filter === "function"
+		) {
+			const cb = trigger as CallbackData;
+			return this.on("message", (context: Inner, next: Next) => {
+				const text = context.text ?? context.caption;
+				if (!text) return next();
+				const hit = extract(text);
+				if (!hit || !cb.filter(hit.data)) return next();
+				context.replyData = cb.unpack(hit.data) as ReplyData;
+				context.args = null;
+				return macroHandler ? macroHandler(context, noopNext) : handler(context);
+			});
+		}
+
+		const visibleOf = (context: Inner): string | undefined => {
+			const text = context.text ?? context.caption;
+			return text === undefined ? undefined : (extract(text)?.visible ?? text);
+		};
+
 		if (typeof trigger === "string") {
 			return this.on("message", (context: Inner, next: Next) => {
-				if ((context.text ?? context.caption) !== trigger) return next();
+				if (visibleOf(context) !== trigger) return next();
 				context.args = null;
 				return macroHandler ? macroHandler(context, noopNext) : handler(context);
 			});
@@ -344,8 +391,8 @@ const methods = defineComposerMethods({
 
 		if (Array.isArray(trigger)) {
 			return this.on("message", (context: Inner, next: Next) => {
-				const text = context.text ?? context.caption;
-				if (!text || !trigger.includes(text)) return next();
+				const visible = visibleOf(context);
+				if (!visible || !trigger.includes(visible)) return next();
 				context.args = null;
 				return macroHandler ? macroHandler(context, noopNext) : handler(context);
 			});
@@ -353,9 +400,9 @@ const methods = defineComposerMethods({
 
 		if (trigger instanceof RegExp) {
 			return this.on("message", (context: Inner, next: Next) => {
-				const text = context.text ?? context.caption;
-				if (!text || !trigger.test(text)) return next();
-				context.args = text.match(trigger);
+				const visible = visibleOf(context);
+				if (!visible || !trigger.test(visible)) return next();
+				context.args = visible.match(trigger);
 				return macroHandler ? macroHandler(context, noopNext) : handler(context);
 			});
 		}

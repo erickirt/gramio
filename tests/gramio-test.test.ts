@@ -1,5 +1,5 @@
 import { describe, expect, expectTypeOf, mock, test } from "bun:test";
-import { CallbackData } from "@gramio/callback-data";
+import { CallbackData, embed } from "@gramio/callback-data";
 import { apiError, TelegramTestEnvironment } from "@gramio/test";
 import { Bot } from "../src/bot.ts";
 import { Composer } from "../src/composer.ts";
@@ -234,6 +234,68 @@ describe("@gramio/test — hears handler", () => {
 		const user = env.createUser({ first_name: "Eve" });
 
 		await user.sendMessage("the secret word");
+
+		expect(handler).toHaveBeenCalledTimes(1);
+	});
+});
+
+describe("@gramio/test — hears reply-keyboard payloads", () => {
+	const nav = new CallbackData("nav").enum("to", ["home", "settings"]);
+
+	test("CallbackData trigger fires with typed replyData from a hidden suffix", async () => {
+		let captured: { to: "home" | "settings" } | undefined;
+
+		const bot = new Bot(TOKEN).hears(nav, (ctx) => {
+			expectTypeOf(ctx.replyData).toEqualTypeOf<{ to: "home" | "settings" }>();
+			captured = ctx.replyData;
+		});
+
+		// @ts-expect-error source Bot vs packaged AnyBot
+		const env = new TelegramTestEnvironment(bot);
+		const user = env.createUser({ first_name: "Alice" });
+
+		// a reply-keyboard tap arrives as the label text + the hidden payload
+		await user.sendMessage(embed("⚙️ Settings", nav.pack({ to: "settings" })));
+
+		expect(captured).toEqual({ to: "settings" });
+	});
+
+	test("CallbackData trigger ignores a normal message (no payload)", async () => {
+		const handler = mock(() => {});
+		const bot = new Bot(TOKEN).hears(nav, handler);
+
+		// @ts-expect-error source Bot vs packaged AnyBot
+		const env = new TelegramTestEnvironment(bot);
+		const user = env.createUser({ first_name: "Bob" });
+
+		await user.sendMessage("just chatting");
+
+		expect(handler).not.toHaveBeenCalled();
+	});
+
+	test("string trigger matches the VISIBLE label even with a hidden suffix", async () => {
+		const handler = mock(() => {});
+		const bot = new Bot(TOKEN).hears("◀ Back", handler);
+
+		// @ts-expect-error source Bot vs packaged AnyBot
+		const env = new TelegramTestEnvironment(bot);
+		const user = env.createUser({ first_name: "Carol" });
+
+		await user.sendMessage(embed("◀ Back", nav.pack({ to: "home" })));
+
+		expect(handler).toHaveBeenCalledTimes(1);
+	});
+
+	test("string trigger still matches a plain visible label (stripped fallback)", async () => {
+		const handler = mock(() => {});
+		const bot = new Bot(TOKEN).hears("◀ Back", handler);
+
+		// @ts-expect-error source Bot vs packaged AnyBot
+		const env = new TelegramTestEnvironment(bot);
+		const user = env.createUser({ first_name: "Dan" });
+
+		// client stripped the invisible run → plain text still routes
+		await user.sendMessage("◀ Back");
 
 		expect(handler).toHaveBeenCalledTimes(1);
 	});

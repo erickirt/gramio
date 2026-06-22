@@ -1396,7 +1396,12 @@ export class Bot<
 	 */
 	hears<
 		Ctx = ContextType<typeof this, "message">,
-		Trigger extends RegExp | MaybeArray<string> | ((context: Ctx) => boolean) =
+		Trigger extends
+			| CallbackData
+			| RegExp
+			| MaybeArray<string>
+			| ((context: Ctx) => boolean) =
+			| CallbackData
 			| RegExp
 			| MaybeArray<string>
 			| ((context: Ctx) => boolean),
@@ -1404,10 +1409,16 @@ export class Bot<
 	>(
 		trigger: Trigger,
 		handler: (
-			context: Ctx & { args: RegExpMatchArray | null } & DeriveFromOptions<
-					Macros,
-					TOptions
-				>,
+			context: Ctx & {
+				args: RegExpMatchArray | null;
+				/**
+				 * Payload decoded from a reply-keyboard button's hidden suffix when
+				 * `trigger` is a {@link CallbackData} (otherwise `undefined`).
+				 */
+				replyData: Trigger extends CallbackData
+					? ReturnType<Trigger["unpack"]>
+					: undefined;
+			} & DeriveFromOptions<Macros, TOptions>,
 		) => unknown,
 		options?: TOptions,
 	) {
