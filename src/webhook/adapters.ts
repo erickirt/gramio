@@ -3,6 +3,14 @@ import type { TelegramUpdate } from "@gramio/types";
 import type { MaybePromise } from "../types.js";
 
 const SECRET_TOKEN_HEADER = "X-Telegram-Bot-Api-Secret-Token";
+/**
+ * Node.js (and every runtime that exposes headers as a plain object) normalizes
+ * header names to lowercase, so raw index access must use the lowercased name.
+ *
+ * Frameworks with a case-insensitive lookup (`express`/`koa`/`hono` helpers,
+ * web-standard `Headers#get`) can keep using {@link SECRET_TOKEN_HEADER}.
+ */
+const SECRET_TOKEN_HEADER_LOWERCASE = SECRET_TOKEN_HEADER.toLowerCase();
 const WRONG_TOKEN_ERROR = "secret token is invalid";
 const RESPONSE_OK = "ok!";
 
@@ -24,13 +32,13 @@ const responseUnauthorized = () =>
 export const frameworks = {
 	elysia: ({ body, headers }) => ({
 		update: body,
-		header: headers[SECRET_TOKEN_HEADER],
+		header: headers[SECRET_TOKEN_HEADER_LOWERCASE],
 		unauthorized: responseUnauthorized,
 		response: responseOK,
 	}),
 	fastify: (request, reply) => ({
 		update: request.body,
-		header: request.headers[SECRET_TOKEN_HEADER],
+		header: request.headers[SECRET_TOKEN_HEADER_LOWERCASE],
 		unauthorized: () => reply.code(401).send(WRONG_TOKEN_ERROR),
 		response: () => reply.send(RESPONSE_OK),
 	}),
@@ -50,7 +58,7 @@ export const frameworks = {
 		update: ctx.request.body,
 		header: ctx.get(SECRET_TOKEN_HEADER),
 		unauthorized: () => {
-			ctx.status === 401;
+			ctx.status = 401;
 			ctx.body = WRONG_TOKEN_ERROR;
 		},
 		response: () => {
@@ -68,7 +76,7 @@ export const frameworks = {
 
 			req.on("end", () => resolve(JSON.parse(body)));
 		}),
-		header: req.headers[SECRET_TOKEN_HEADER.toLowerCase()],
+		header: req.headers[SECRET_TOKEN_HEADER_LOWERCASE],
 		unauthorized: () => res.writeHead(401).end(WRONG_TOKEN_ERROR),
 		response: () => res.writeHead(200).end(RESPONSE_OK),
 	}),

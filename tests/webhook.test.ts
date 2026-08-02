@@ -2,6 +2,9 @@ import { describe, expect, mock, test } from "bun:test";
 import { webhookHandler } from "../src/webhook/index.ts";
 
 const SECRET_HEADER = "X-Telegram-Bot-Api-Secret-Token";
+/** Runtimes that expose headers as a plain object always lowercase the name */
+const SECRET_HEADER_LOWERCASE = SECRET_HEADER.toLowerCase();
+const SECRET = "expected-secret";
 const SAMPLE_UPDATE = {
 	update_id: 100,
 	message: {
@@ -117,5 +120,146 @@ describe("webhookHandler", () => {
 		await expect(async () => handler(createRequest())).toThrow(
 			"Webhook handler execution timed out after 10ms",
 		);
+	});
+});
+
+describe("secret token header resolution", () => {
+	function headers(value = SECRET) {
+		return { [SECRET_HEADER_LOWERCASE]: value };
+	}
+
+	/** `express`/`koa`/`hono` look headers up case-insensitively */
+	function caseInsensitive(value = SECRET) {
+		const raw = headers(value);
+
+		return (name: string) => raw[name.toLowerCase()];
+	}
+
+	test("fastify reads the lowercased header", async () => {
+		const { bot, queueAdd } = createBot();
+		const reply: any = { send: mock(() => {}) };
+		reply.code = mock(() => reply);
+		const handler = webhookHandler(bot as any, "fastify", SECRET);
+
+		await handler({ body: SAMPLE_UPDATE, headers: headers() }, reply);
+
+		expect(queueAdd).toHaveBeenCalledTimes(1);
+		expect(reply.code).not.toHaveBeenCalled();
+		expect(reply.send).toHaveBeenCalledWith("ok!");
+	});
+
+	test("fastify rejects a wrong token", async () => {
+		const { bot, queueAdd } = createBot();
+		const reply: any = { send: mock(() => {}) };
+		reply.code = mock(() => reply);
+		const handler = webhookHandler(bot as any, "fastify", SECRET);
+
+		await handler({ body: SAMPLE_UPDATE, headers: headers("wrong") }, reply);
+
+		expect(queueAdd).not.toHaveBeenCalled();
+		expect(reply.code).toHaveBeenCalledWith(401);
+		expect(reply.send).toHaveBeenCalledWith("secret token is invalid");
+	});
+
+	test("elysia reads the lowercased header", async () => {
+		const { bot, queueAdd } = createBot();
+		const handler = webhookHandler(bot as any, "elysia", SECRET);
+
+		const response = await handler({
+			body: SAMPLE_UPDATE,
+			headers: headers(),
+		});
+
+		expect(queueAdd).toHaveBeenCalledTimes(1);
+		expect(response.status).toBe(200);
+	});
+
+	test("elysia rejects a wrong token", async () => {
+		const { bot, queueAdd } = createBot();
+		const handler = webhookHandler(bot as any, "elysia", SECRET);
+
+		const response = await handler({
+			body: SAMPLE_UPDATE,
+			headers: headers("wrong"),
+		});
+
+		expect(queueAdd).not.toHaveBeenCalled();
+		expect(response.status).toBe(401);
+	});
+
+	test("http reads the lowercased header", async () => {
+		const { bot, queueAdd } = createBot();
+		const req = {
+			headers: headers(),
+			on(event: string, listener: (chunk?: string) => void) {
+				if (event === "data") listener(JSON.stringify(SAMPLE_UPDATE));
+				else listener();
+			},
+		};
+		const res: any = { end: mock(() => {}) };
+		res.writeHead = mock(() => res);
+		const handler = webhookHandler(bot as any, "http", SECRET);
+
+		await handler(req, res);
+
+		expect(queueAdd).toHaveBeenCalledTimes(1);
+		expect(res.writeHead).toHaveBeenCalledWith(200);
+		expect(res.end).toHaveBeenCalledWith("ok!");
+	});
+
+	test("express reads the header case-insensitively", async () => {
+		const { bot, queueAdd } = createBot();
+		const res: any = { send: mock(() => {}) };
+		res.status = mock(() => res);
+		const handler = webhookHandler(bot as any, "express", SECRET);
+
+		await handler({ body: SAMPLE_UPDATE, header: caseInsensitive() }, res);
+
+		expect(queueAdd).toHaveBeenCalledTimes(1);
+		expect(res.status).not.toHaveBeenCalled();
+		expect(res.send).toHaveBeenCalledWith("ok!");
+	});
+
+	test("koa reads the header case-insensitively and answers 401", async () => {
+		const { bot, queueAdd } = createBot();
+		const ctx: any = {
+			request: { body: SAMPLE_UPDATE },
+			get: caseInsensitive("wrong"),
+		};
+		const handler = webhookHandler(bot as any, "koa", SECRET);
+
+		await handler(ctx);
+
+		expect(queueAdd).not.toHaveBeenCalled();
+		expect(ctx.status).toBe(401);
+		expect(ctx.body).toBe("secret token is invalid");
+	});
+
+	test("hono reads the header case-insensitively", async () => {
+		const { bot, queueAdd } = createBot();
+		const handler = webhookHandler(bot as any, "hono", SECRET);
+
+		const response = await handler({
+			req: {
+				json: async () => SAMPLE_UPDATE,
+				header: caseInsensitive(),
+			},
+			text: (text: string, status: number) => new Response(text, { status }),
+		});
+
+		expect(queueAdd).toHaveBeenCalledTimes(1);
+		expect(response.status).toBe(200);
+	});
+
+	test("Request reads the header case-insensitively", async () => {
+		const { bot, queueAdd } = createBot();
+		const handler = webhookHandler(bot as any, "Request", SECRET);
+
+		const response = await handler(
+			createRequest({ [SECRET_HEADER_LOWERCASE]: SECRET }),
+		);
+
+		expect(queueAdd).toHaveBeenCalledTimes(1);
+		expect(response.status).toBe(200);
 	});
 });
