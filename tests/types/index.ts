@@ -4,6 +4,26 @@ import { Bot } from "../../src/bot.ts";
 import { Plugin } from "../../src/plugin.ts";
 
 {
+	const bot = new Bot("test");
+	bot.api.sendMessage({
+		chat_id: 1,
+		text: "ephemeral",
+		ephemeral_message_parameters: {
+			receiver_user_id: 2,
+			callback_query_id: "query",
+			replace_callback_query_message: true,
+		},
+	});
+
+	bot.api.sendMessage({
+		chat_id: 1,
+		text: "legacy",
+		// @ts-expect-error Bot API 10.3 requires ephemeral_message_parameters
+		receiver_user_id: 2,
+	});
+}
+
+{
 	const plugin = new Plugin("test");
 
 	expectTypeOf<typeof plugin>().toBeObject();

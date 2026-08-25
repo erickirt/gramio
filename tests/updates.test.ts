@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, jest } from "bun:test";
+import { Bot } from "../src/bot.js";
 import { Updates } from "../src/updates.js";
 
 class MockBot {
@@ -93,5 +94,55 @@ describe("Updates.startFetchLoop stop-during-await race", () => {
 		expect(addBatchSpy).not.toHaveBeenCalled();
 		// Loop should have exited and not made a second getUpdates call.
 		expect(callCount).toBe(1);
+	});
+});
+
+describe("Updates.handleUpdate Bot API 10.3 routing", () => {
+	it("delivers stopped_message_generation to its first-class context", async () => {
+		let received:
+			| { draftId: number; threadId: number | undefined; chatId: number }
+			| undefined;
+		const bot = new Bot("test-token").on(
+			"stopped_message_generation",
+			(context) => {
+				received = {
+					draftId: context.draftId,
+					threadId: context.threadId,
+					chatId: context.chatId,
+				};
+			},
+		);
+
+		await bot.updates.handleUpdate({
+			update_id: 200,
+			stopped_message_generation: {
+				chat: { id: 42, type: "private", first_name: "Ada" },
+				message_thread_id: 7,
+				draft_id: 9,
+			},
+		});
+
+		expect(received).toEqual({ draftId: 9, threadId: 7, chatId: 42 });
+	});
+
+	it("routes community_chat_joined through the message service event", async () => {
+		let communityName: string | undefined;
+		const bot = new Bot("test-token").on("community_chat_joined", (context) => {
+			communityName = context.community.name;
+		});
+
+		await bot.updates.handleUpdate({
+			update_id: 201,
+			message: {
+				message_id: 1,
+				date: 0,
+				chat: { id: -100, type: "supergroup", title: "Group" },
+				community_chat_joined: {
+					community: { id: 8, name: "Builders" },
+				},
+			},
+		});
+
+		expect(communityName).toBe("Builders");
 	});
 });

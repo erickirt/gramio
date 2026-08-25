@@ -23,6 +23,9 @@ describe("mapEventToAllowedUpdates()", () => {
 			"message_reaction",
 		]);
 		expect(mapEventToAllowedUpdates("chat_member")).toEqual(["chat_member"]);
+		expect(mapEventToAllowedUpdates("stopped_message_generation")).toEqual([
+			"stopped_message_generation",
+		]);
 	});
 
 	test("sub-message event maps to all 5 message parent types", () => {
@@ -90,6 +93,16 @@ describe("detectOptInUpdates()", () => {
 		expect(OPT_IN_TYPES).toContain("message_reaction");
 		expect(OPT_IN_TYPES).toContain("message_reaction_count");
 		expect(OPT_IN_TYPES).toHaveLength(3);
+		expect(OPT_IN_TYPES).not.toContain("stopped_message_generation");
+	});
+});
+
+describe("AllowedUpdatesFilter Bot API 10.3 defaults", () => {
+	test("all and default include stopped_message_generation", () => {
+		expect(AllowedUpdatesFilter.all).toContain("stopped_message_generation");
+		expect(AllowedUpdatesFilter.default).toContain(
+			"stopped_message_generation",
+		);
 	});
 });
 
@@ -135,6 +148,13 @@ describe("buildAllowedUpdates()", () => {
 		const bot = new Bot(TOKEN).inlineQuery("query", () => {});
 		const result = buildAllowedUpdates(bot);
 		expect(new Set(result).has("inline_query")).toBe(true);
+	});
+
+	test(".on('stopped_message_generation') registers its top-level update", () => {
+		const bot = new Bot(TOKEN).on("stopped_message_generation", () => {});
+		expect(buildAllowedUpdates(bot).toArray()).toEqual([
+			"stopped_message_generation",
+		]);
 	});
 
 	test(".on('new_chat_members') registers all 5 message-parent types", () => {
